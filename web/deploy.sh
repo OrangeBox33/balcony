@@ -187,6 +187,7 @@ if [ "$DRY_RUN" = "1" ]; then
 fi
 
 say "Заливаю на $REMOTE:$REMOTE_DIR"
+remote "mkdir -p $REMOTE_DIR"
 rsync "${RSYNC_OPTS[@]}" "$STAGE/" "$REMOTE:$REMOTE_DIR/"
 
 # ── Зависимости и перезапуск ───────────────────────────────────────────────
