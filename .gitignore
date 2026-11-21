@@ -34,4 +34,4 @@ web/**/palette.json
 .env
 
 # Локальные настройки Claude Code
-.claude/settings.local.json
+.claude/
