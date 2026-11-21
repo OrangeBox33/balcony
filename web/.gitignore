@@ -1,0 +1,15 @@
+/ssl
+/dist
+/server/dist
+
+# промежуточная посылка, которую собирает deploy.sh
+/.deploy
+
+
+# dependencies
+/node_modules
+/server/node_modules
+
+# misc
+.env
+.DS_Store

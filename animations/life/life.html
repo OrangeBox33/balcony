@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Игра «Жизнь»</title>
+<style>
+  :root {
+    --bg: #0b0b0e;
+    --panel: #15151a;
+    --line: #26262e;
+    --text: #e8e8ee;
+    --muted: #8a8a96;
+    --accent: #ffb020;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 4px 0 2px; }
+  .muted { color: var(--muted); }
+  .screen {
+    margin: 14px 0; background: #050507; border-radius: 10px; padding: 10px;
+    border: 1px solid var(--line);
+  }
+  canvas { display: block; width: 100%; height: auto; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 18px; font-variant-numeric: tabular-nums; }
+  .stats b { color: var(--accent); font-weight: 600; }
+  .panel {
+    display: grid; gap: 14px 22px; margin-top: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px;
+  }
+  label { display: block; }
+  label .v { float: right; color: var(--accent); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  select {
+    width: 100%; margin-top: 4px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px; font: inherit;
+  }
+  .check { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  button {
+    background: var(--panel); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 14px; font: inherit; cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: #111; border-color: var(--accent); font-weight: 600; }
+  .log { margin-top: 14px; }
+  .log ol { margin: 6px 0 0; padding-left: 22px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .log li:first-child { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Игра «Жизнь» на матрице 28×14</h1>
+  <div class="muted">После раунда — число прожитых поколений, затем отсчёт 3-2-1-LIVE! и новый раунд.</div>
+
+  <div class="screen"><canvas id="cv"></canvas></div>
+
+  <div class="stats">
+    <span>Раунд <b id="sRun">1</b></span>
+    <span>Поколение <b id="sGen">0</b></span>
+    <span>Живых на экране <b id="sVis">0</b></span>
+    <span>Живых всего <b id="sAll">0</b></span>
+    <span>Поле <b id="sField"></b></span>
+    <span>Рекорд <b id="sBest">0</b></span>
+    <span id="sState" class="muted"></span>
+  </div>
+
+  <div class="btns">
+    <button class="primary" id="bPause">Пауза</button>
+    <button id="bStep">Шаг</button>
+    <button id="bNew">Новая генерация</button>
+  </div>
+
+  <div class="panel">
+    <label>Скорость, поколений в секунду <span class="v" id="vSpeed"></span>
+      <input type="range" id="speed" min="1" max="30" value="15"></label>
+    <label>Плотность засева <span class="v" id="vDens"></span>
+      <input type="range" id="dens" min="5" max="60" value="19"></label>
+    <label>Запас за краем экрана, клеток <span class="v" id="vMargin"></span>
+      <input type="range" id="margin" min="0" max="12" value="0"></label>
+    <label>Цвет
+      <select id="color">
+        <option value="solid" selected>Один цвет на раунд</option>
+        <option value="white">Белый</option>
+        <option value="age">По возрасту клетки</option>
+        <option value="rainbow">Радуга</option>
+      </select></label>
+    <div>
+      <label class="check"><input type="checkbox" id="glow"> Шлейф от погибших клеток</label>
+      <label class="check"><input type="checkbox" id="hidden"> Показать невидимую зону</label>
+    </div>
+    <label>Предел поколений на раунд <span class="v" id="vMax"></span>
+      <input type="range" id="maxGen" min="200" max="5100" step="100" value="5100"></label>
+  </div>
+
+  <div class="log">
+    <div class="muted">Итоги раундов:</div>
+    <ol id="log"></ol>
+  </div>
+</div>
+
+<script>
+const W = 28, H = 14;
+const BIG = 1000;            // с этого числа — праздник
+const SCORE_MS = 2000, BIG_SCORE_MS = 10000, COUNT_MS = 1200;
+const NO_LIMIT = 5100;
+const $ = id => document.getElementById(id);
+
+// Как цвет выглядит на диодах после гамма-коррекции WLED.
+const GV = new Uint8Array(256);
+for (let v = 0; v < 256; v++) {
+  const pwm = Math.round(255 * Math.pow(v / 255, 2.8));
+  GV[v] = Math.round(255 * Math.pow(pwm / 255, 1 / 2.8));
+}
+
+function hsv(h, s, v) {
+  h = ((h % 1) + 1) % 1;
+  const i = Math.floor(h * 6), f = h * 6 - i;
+  const p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
+  const [r, g, b] = [[v, t, p], [q, v, p], [p, v, t], [p, q, v], [t, p, v], [v, p, q]][i % 6];
+  return [r * 255, g * 255, b * 255];
+}
+
+// ------------------------------------------------------------ шрифты
+const F7 = {
+  "0": [".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###."],
+  "1": ["..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."],
+  "2": [".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"],
+  "3": ["####.", "....#", "....#", ".###.", "....#", "....#", "####."],
+  "4": ["...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."],
+  "5": ["#####", "#....", "####.", "....#", "....#", "#...#", ".###."],
+  "6": ["..##.", ".#...", "#....", "####.", "#...#", "#...#", ".###."],
+  "7": ["#####", "....#", "...#.", "..#..", ".#...", ".#...", ".#..."],
+  "8": [".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."],
+  "9": [".###.", "#...#", "#...#", ".####", "....#", "...#.", ".##.."],
+  "L": ["#...", "#...", "#...", "#...", "#...", "#...", "####"],
+  "I": ["###", ".#.", ".#.", ".#.", ".#.", ".#.", "###"],
+  "V": ["#...#", "#...#", "#...#", "#...#", ".#.#.", ".#.#.", "..#.."],
+  "E": ["####", "#...", "#...", "###.", "#...", "#...", "####"],
+  "!": ["#", "#", "#", "#", "#", ".", "#"],
+};
+const F5 = {
+  "0": ["###", "#.#", "#.#", "#.#", "###"], "1": [".#.", "##.", ".#.", ".#.", "###"],
+  "2": ["##.", "..#", ".#.", "#..", "###"], "3": ["##.", "..#", ".#.", "..#", "##."],
+  "4": ["#.#", "#.#", "###", "..#", "..#"], "5": ["###", "#..", "##.", "..#", "##."],
+  "6": [".##", "#..", "###", "#.#", "###"], "7": ["###", "..#", ".#.", ".#.", ".#."],
+  "8": ["###", "#.#", "###", "#.#", "###"], "9": ["###", "#.#", "###", "..#", "##."],
+};
+const textW = (s, f) => [...s].reduce((a, c) => a + f[c][0].length + 1, -1);
+
+// Пишет текст по центру в буфер W×H. Не влезает крупным — берёт мелкий шрифт.
+function putText(buf, s, rgb) {
+  const f = textW(s, F7) <= W - 2 ? F7 : F5;
+  const gh = f["0"].length;
+  let x = Math.floor((W - textW(s, f)) / 2);
+  const y = Math.floor((H - gh) / 2);
+  for (const c of s) {
+    const g = f[c];
+    g.forEach((row, dy) => [...row].forEach((v, dx) => { if (v === "#") buf[(y + dy) * W + x + dx] = rgb; }));
+    x += g[0].length + 1;
+  }
+}
+
+// ------------------------------------------------------------ состояние
+let M, FW, FH, cells, next, age, glow;
+let gen = 0, run = 0, best = 0;
+let hue = Math.random(), nextHue = Math.random();
+let seen, visSeen, visStuck, visEmpty;
+let phase = "run", holdLeft = 0, phaseT = 0;
+let lived = 0, endReason = "", lastRunColor = [255, 255, 255];
+let paused = false;
+
+function alloc() {
+  M = +$("margin").value;
+  FW = W + 2 * M; FH = H + 2 * M;
+  cells = new Uint8Array(FW * FH);
+  next = new Uint8Array(FW * FH);
+  age = new Uint16Array(FW * FH);
+  glow = new Float32Array(FW * FH * 3);
+  $("sField").textContent = `${FW}×${FH}`;
+  resizeCanvas();
+}
+
+function seed() {
+  const d = +$("dens").value / 100;
+  for (let i = 0; i < cells.length; i++) { cells[i] = Math.random() < d ? 1 : 0; age[i] = 0; }
+  glow.fill(0);
+  gen = 0; run++;
+  hue = nextHue;
+  nextHue = (hue + 0.2 + Math.random() * 0.6) % 1; // следующий цвет заметно отличается
+  seen = new Map(); visSeen = new Map();
+  visStuck = 0; visEmpty = 0;
+  phase = "run"; endReason = ""; lived = 0;
+  remember();
+}
+
+function hashOf(x0, y0, w, h) {
+  let a = 0x811c9dc5, b = 0x01000193 ^ 0x5bd1e995;
+  for (let y = y0; y < y0 + h; y++) {
+    const row = y * FW;
+    for (let x = x0; x < x0 + w; x++) {
+      const c = cells[row + x];
+      a = Math.imul(a ^ c, 0x01000193);
+      b = Math.imul(b ^ (c + x), 0x5bd1e995);
+    }
+  }
+  return (a >>> 0).toString(36) + ":" + (b >>> 0).toString(36);
+}
+
+function remember() {
+  seen.set(hashOf(0, 0, FW, FH), gen);
+  visSeen.set(hashOf(M, M, W, H), gen);
+  for (const [k, g] of seen) if (gen - g > 200) seen.delete(k);
+  for (const [k, g] of visSeen) if (gen - g > 60) visSeen.delete(k);
+}
+
+function step() {
+  for (let y = 0; y < FH; y++) {
+    for (let x = 0; x < FW; x++) {
+      let n = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= FH) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          const xx = x + dx;
+          if (xx >= 0 && xx < FW) n += cells[yy * FW + xx];
+        }
+      }
+      const i = y * FW + x, alive = cells[i];
+      next[i] = (alive && (n === 2 || n === 3)) || (!alive && n === 3) ? 1 : 0;
+      age[i] = next[i] ? (alive ? Math.min(age[i] + 1, 60000) : 0) : 0;
+    }
+  }
+  [cells, next] = [next, cells];
+  gen++;
+}
+
+function counts() {
+  let all = 0, vis = 0;
+  for (let y = 0; y < FH; y++) for (let x = 0; x < FW; x++) {
+    if (!cells[y * FW + x]) continue;
+    all++;
+    if (x >= M && x < M + W && y >= M && y < M + H) vis++;
+  }
+  return { all, vis };
+}
+
+// Конец раунда: причина и честное число поколений — до момента, когда картинка
+// впервые пришла в финальное состояние (проверочные повторы не считаются).
+function checkEnd(c) {
+  if (c.all === 0) return { reason: "всё вымерло", lived: gen };
+  const h = hashOf(0, 0, FW, FH);
+  if (seen.has(h)) {
+    const p = gen - seen.get(h);
+    return { reason: p === 1 ? "застыло" : `зациклилось, период ${p}`, lived: gen - p };
+  }
+  visEmpty = c.vis === 0 ? visEmpty + 1 : 0;
+  if (visEmpty >= 20) return { reason: "экран пуст, жизнь ушла за кадр", lived: gen - visEmpty + 1 };
+  const vh = hashOf(M, M, W, H);
+  visStuck = visSeen.has(vh) ? visStuck + 1 : 0;
+  if (visStuck >= 60) return { reason: "на экране повтор, за кадром ещё шевелится", lived: gen - visStuck };
+  const max = +$("maxGen").value;
+  if (max < NO_LIMIT && gen >= max) return { reason: "достигнут предел поколений", lived: gen };
+  return null;
+}
+
+function runColor() {
+  return $("color").value === "white" ? [255, 255, 255] : hsv(hue, 1, 1);
+}
+
+function endRound(end, c) {
+  lived = end.lived;
+  endReason = end.reason;
+  lastRunColor = runColor();
+  best = Math.max(best, lived);
+  const li = document.createElement("li");
+  li.textContent = `Раунд ${run}: ${lived} поколений — ${end.reason}${lived >= BIG ? " 🎉" : ""}`;
+  $("log").prepend(li);
+  while ($("log").children.length > 15) $("log").lastChild.remove();
+  // короткая пауза на финальной картинке, чтобы глаз успел её увидеть
+  phase = "hold";
+  holdLeft = c.all === 0 ? 0 : Math.max(3, Math.round(+$("speed").value * 0.5));
+  if (!holdLeft) toScore();
+}
+
+function toScore() { phase = "score"; phaseT = 0; }
+
+function advance() {
+  if (phase === "run") {
+    step();
+    const c = counts();
+    const end = checkEnd(c);
+    remember();
+    if (end) endRound(end, c);
+  } else if (phase === "hold") {
+    step();
+    if (--holdLeft <= 0) toScore();
+  }
+  updateStats();
+}
+
+function tickPhase(dt) {
+  phaseT += dt;
+  if (phase === "score" && phaseT >= (lived >= BIG ? BIG_SCORE_MS : SCORE_MS)) { phase = "count"; phaseT = 0; }
+  else if (phase === "count" && phaseT >= COUNT_MS) { seed(); updateStats(); }
+}
+
+function updateStats() {
+  const c = counts();
+  $("sRun").textContent = run;
+  $("sGen").textContent = gen;
+  $("sVis").textContent = c.vis;
+  $("sAll").textContent = c.all;
+  $("sBest").textContent = best;
+  $("sState").textContent = endReason ? `→ ${lived} поколений, ${endReason}` : "";
+}
+
+// ------------------------------------------------------------ табло между раундами
+const PERIM = [];
+for (let x = 0; x < W; x++) PERIM.push([x, 0]);
+for (let y = 1; y < H; y++) PERIM.push([W - 1, y]);
+for (let x = W - 2; x >= 0; x--) PERIM.push([x, H - 1]);
+for (let y = H - 2; y > 0; y--) PERIM.push([0, y]);
+
+function overlay() {
+  if (phase !== "score" && phase !== "count") return null;
+  const buf = new Array(W * H).fill(null);
+  if (phase === "count") {
+    const i = Math.min(3, Math.floor(phaseT / (COUNT_MS / 4)));
+    const col = $("color").value === "white" ? [255, 255, 255] : hsv(nextHue, 1, 1);
+    putText(buf, ["3", "2", "1", "LIVE!"][i], col);
+    return buf;
+  }
+  putText(buf, String(lived), lastRunColor);
+  if (lived >= BIG) party(buf, phaseT);
+  return buf;
+}
+
+// Праздник по краям: бегущая радуга, вспышки и искры.
+function party(buf, t) {
+  const n = PERIM.length, shift = Math.floor(t / 35);
+  const strobe = t % 500 < 90;
+  PERIM.forEach(([x, y], k) => {
+    let c;
+    if (strobe) c = [255, 255, 255];
+    else if ((k + shift) % 6 < 3) c = hsv(k / n + t / 1500, 1, 1);
+    else c = null;
+    if (Math.random() < 0.08) c = [255, 255, 255];
+    buf[y * W + x] = c;
+  });
+  // искры во внутреннем кольце
+  for (let s = 0; s < 3; s++) {
+    const [x, y] = PERIM[Math.floor(Math.random() * n)];
+    const ix = Math.min(Math.max(x, 1), W - 2) + (x === 0 ? 1 : x === W - 1 ? -1 : 0);
+    const iy = Math.min(Math.max(y, 1), H - 2) + (y === 0 ? 1 : y === H - 1 ? -1 : 0);
+    if (!buf[iy * W + ix]) buf[iy * W + ix] = hsv(Math.random(), 0.6, 1);
+  }
+}
+
+// ------------------------------------------------------------ отрисовка
+const cv = $("cv"), ctx = cv.getContext("2d");
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+let P = 20;
+
+function resizeCanvas() {
+  const showHidden = $("hidden").checked;
+  P = Math.round(24 * DPR);
+  cv.width = (showHidden ? FW : W) * P;
+  cv.height = (showHidden ? FH : H) * P;
+}
+
+function cellColor(i, x) {
+  const mode = $("color").value;
+  if (mode === "white") return [255, 255, 255];
+  if (mode === "solid") return hsv(hue, 1, 1);
+  if (mode === "rainbow") return hsv(x / W * 0.8 + gen * 0.01, 1, 1);
+  const a = age[i];
+  if (a === 0) return hsv(hue, 0.25, 1);
+  return hsv(hue + Math.min(a, 40) * 0.012, 1, 1);
+}
+
+function draw() {
+  const showHidden = $("hidden").checked;
+  const useGlow = $("glow").checked;
+  const ov = overlay();
+  const ox = showHidden ? 0 : M, oy = showHidden ? 0 : M;
+  const cw = showHidden ? FW : W, ch = showHidden ? FH : H;
+  ctx.fillStyle = "#050507";
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  const r = P * 0.36;
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+    const fx = x + ox, fy = y + oy, i = fy * FW + fx;
+    const inView = fx >= M && fx < M + W && fy >= M && fy < M + H;
+    let rgb;
+    if (ov) {
+      rgb = inView ? (ov[(fy - M) * W + fx - M] || [0, 0, 0]) : [0, 0, 0];
+    } else if (cells[i]) {
+      rgb = cellColor(i, fx - M);
+      glow[i * 3] = rgb[0]; glow[i * 3 + 1] = rgb[1]; glow[i * 3 + 2] = rgb[2];
+    } else if (useGlow) {
+      rgb = [glow[i * 3], glow[i * 3 + 1], glow[i * 3 + 2]];
+    } else rgb = [0, 0, 0];
+    const k = inView ? 1 : 0.35;
+    let cr = GV[Math.round(rgb[0] * k)], cg = GV[Math.round(rgb[1] * k)], cb = GV[Math.round(rgb[2] * k)];
+    if (Math.max(cr, cg, cb) < 10) { cr = cg = cb = inView ? 30 : 18; }
+    ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
+    ctx.beginPath();
+    ctx.arc(x * P + P / 2, y * P + P / 2, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (showHidden && M > 0) {
+    ctx.strokeStyle = "rgba(255,176,32,.8)";
+    ctx.lineWidth = 2 * DPR;
+    ctx.strokeRect(M * P, M * P, W * P, H * P);
+  }
+}
+
+function decayGlow() {
+  for (let i = 0; i < cells.length; i++) {
+    if (cells[i]) continue;
+    glow[i * 3] *= 0.4; glow[i * 3 + 1] *= 0.4; glow[i * 3 + 2] *= 0.4;
+  }
+}
+
+// ------------------------------------------------------------ цикл
+let last = 0, acc = 0;
+function loop(t) {
+  const dt = Math.min(t - last, 250); last = t;
+  if (!paused) {
+    if (phase === "run" || phase === "hold") {
+      const period = 1000 / +$("speed").value;
+      acc += dt;
+      while (acc >= period && (phase === "run" || phase === "hold")) { acc -= period; decayGlow(); advance(); }
+    } else {
+      acc = 0;
+      tickPhase(dt);
+    }
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// ------------------------------------------------------------ управление
+function bindRange(id, out, fmt = v => v) {
+  const f = () => $(out).textContent = fmt($(id).value);
+  $(id).addEventListener("input", f); f();
+}
+bindRange("speed", "vSpeed");
+bindRange("dens", "vDens", v => v + "%");
+bindRange("margin", "vMargin");
+bindRange("maxGen", "vMax", v => +v >= NO_LIMIT ? "без лимита" : v);
+
+$("margin").addEventListener("change", () => { alloc(); seed(); updateStats(); });
+$("hidden").addEventListener("change", resizeCanvas);
+$("bPause").addEventListener("click", () => {
+  paused = !paused;
+  $("bPause").textContent = paused ? "Пуск" : "Пауза";
+});
+$("bStep").addEventListener("click", () => {
+  if (!paused) { paused = true; $("bPause").textContent = "Пуск"; }
+  if (phase === "run" || phase === "hold") { decayGlow(); advance(); }
+});
+$("bNew").addEventListener("click", () => { seed(); updateStats(); });
+
+alloc();
+seed();
+updateStats();
+requestAnimationFrame(t => { last = t; loop(t); });
+</script>
+</body>
+</html>

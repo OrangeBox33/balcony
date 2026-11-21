@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Анимации гирлянды</title>
+<style>
+  :root {
+    --bg: #0b0b0e;
+    --panel: #15151a;
+    --line: #26262e;
+    --text: #e8e8ee;
+    --muted: #8a8a96;
+    --accent: #ffb020;
+    --ok: #2fd86a;
+    --bad: #ff5a4f;
+    --long: #4aa8ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header { padding: 16px 16px 4px; }
+  h1 { font-size: 20px; margin: 0 0 2px; }
+  .muted { color: var(--muted); }
+  .grid {
+    display: grid; gap: 14px; padding: 0 16px 16px;
+    grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
+  }
+  section h2 { font-size: 17px; margin: 18px 16px 10px; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+  section h2 .dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; background: var(--c); align-self: center; }
+  section h2 .muted { font-weight: 400; font-size: 14px; }
+  section h2 .sum { font-weight: 400; font-size: 13px; color: var(--muted); margin-left: auto; }
+  section .empty { padding: 0 16px 8px; display: none; }
+  section.is-empty .empty { display: block; }
+  body.hide-rest #secRest { display: none; }
+  .param {
+    display: none; align-items: center; gap: 8px; margin-top: 8px; padding: 6px 8px;
+    border-radius: 7px; background: #1c1c23; color: var(--muted);
+  }
+  .card.in-long .param.long, .card.in-often .param.often { display: flex; }
+  .param input {
+    width: 72px; font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid #3a3a46; border-radius: 6px; padding: 3px 6px; text-align: right;
+  }
+  .param input:focus { outline: none; border-color: var(--c); }
+  .param .calc { margin-left: auto; font-size: 12px; }
+  .param button {
+    font: inherit; width: 26px; height: 26px; border-radius: 6px; border: 1px solid #3a3a46;
+    background: var(--line); color: var(--text); cursor: pointer; padding: 0;
+  }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+  .card canvas {
+    width: 100%; height: auto; display: block;
+    background: #050507; border-radius: 6px; cursor: zoom-in;
+  }
+  .cap { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; }
+  .cap b { font-weight: 600; }
+  .zoom {
+    position: fixed; inset: 0; background: rgba(0, 0, 0, .92); display: none;
+    align-items: center; justify-content: center; padding: 16px; z-index: 10; cursor: zoom-out;
+  }
+  .zoom.on { display: flex; }
+  .zoom canvas { width: min(100%, 1100px); height: auto; }
+
+  /* плашка выбора сверху */
+  .bar {
+    position: sticky; top: 0; z-index: 5;
+    background: rgba(17, 17, 22, .96); backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--line);
+    padding: 10px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
+  }
+  .bar .stat b { font-size: 16px; }
+  .meter { flex: 1 1 200px; min-width: 160px; }
+  .meter .track { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+  .meter .fill { height: 100%; width: 0; background: var(--ok); transition: width .2s; }
+  .meter.over .fill { background: var(--bad); }
+  .meter .lbl { font-size: 12px; margin-top: 3px; }
+  .meter.over .lbl { color: var(--bad); }
+  .bar .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .bar button {
+    font: inherit; color: var(--text); background: var(--line); border: 1px solid #34343e;
+    border-radius: 7px; padding: 6px 12px; cursor: pointer;
+  }
+  .bar button:hover { background: #30303a; }
+  .bar button.primary { background: var(--ok); border-color: var(--ok); color: #06210f; font-weight: 600; }
+  .bar button.primary:hover { filter: brightness(1.1); }
+  .bar button.on { border-color: var(--ok); color: var(--ok); }
+  .bar button:disabled { opacity: .45; cursor: default; }
+
+  .picks { display: flex; gap: 8px; margin-top: 8px; }
+  .pick {
+    flex: 1; display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;
+    border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; color: var(--muted);
+    font: inherit; background: none; text-align: left;
+  }
+  .pick:hover { border-color: #44444f; color: var(--text); }
+  .chk {
+    flex: none; width: 18px; height: 18px; border-radius: 5px; border: 2px solid #4a4a56;
+    display: grid; place-items: center; transition: background .15s, border-color .15s;
+  }
+  .chk svg { width: 12px; height: 12px; opacity: 0; }
+  .pick.on { color: var(--text); border-color: var(--c); }
+  .pick.on .chk { background: var(--c); border-color: var(--c); }
+  .pick.on .chk svg { opacity: 1; }
+  .pick small { color: var(--muted); font-size: 11px; white-space: nowrap; }
+  .pick > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .long { --c: var(--long); }
+  .often { --c: var(--ok); }
+  .card.in-long { border-color: var(--long); }
+  .card.in-often { border-color: var(--ok); }
+  .card.in-long.in-often { border-color: var(--long) var(--ok) var(--ok) var(--long); }
+  .bar .stat .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--c); margin-right: 4px; }
+  .bar select {
+    font: inherit; color: var(--text); background: var(--line); border: 1px solid #34343e;
+    border-radius: 7px; padding: 6px 8px;
+  }
+  .toast {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+    background: var(--ok); color: #06210f; font-weight: 600;
+    padding: 8px 16px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 20;
+  }
+  .toast.on { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="stat often"><span class="dot"></span>Часто <b id="sOften">0</b> <span class="muted" id="sOftenT"></span></div>
+  <div class="stat long"><span class="dot"></span>Долго <b id="sLong">0</b> <span class="muted" id="sLongT"></span></div>
+  <div class="stat">Файлов <b id="sCount">0</b> <span class="muted">из <span id="sTotal">0</span></span></div>
+  <div class="stat">Вес <b id="sKb">0</b> <span class="muted">КБ</span></div>
+  <div class="meter" id="meter">
+    <div class="track"><div class="fill" id="mFill"></div></div>
+    <div class="lbl muted" id="mLbl"></div>
+  </div>
+  <div class="btns">
+    <button class="primary" id="bCopy" disabled>Скопировать список</button>
+    <button id="bRest">Скрыть невыбранные</button>
+    <button id="bClear" disabled>Сбросить</button>
+  </div>
+</div>
+<header>
+  <h1>Анимации для матрицы 28×14</h1>
+  <div class="muted">Так они будут выглядеть на диодах. Нажми на анимацию, чтобы увеличить.
+    <b style="color:var(--ok)">Часто</b> — играет N раз подряд и сменяется;
+    <b style="color:var(--long)">Долго</b> — спокойная, крутится заданное число секунд.</div>
+</header>
+<section class="often" id="secOften">
+  <h2><span class="dot"></span>Часто <span class="muted">— сколько раз подряд</span> <span class="sum" id="hOften"></span></h2>
+  <div class="grid" id="gOften"></div>
+  <div class="empty muted">Пока пусто — отметь «Часто» у анимации ниже.</div>
+</section>
+<section class="long" id="secLong">
+  <h2><span class="dot"></span>Долго <span class="muted">— сколько секунд крутить</span> <span class="sum" id="hLong"></span></h2>
+  <div class="grid" id="gLong"></div>
+  <div class="empty muted">Пока пусто — отметь «Долго» у анимации ниже.</div>
+</section>
+<section id="secRest">
+  <h2>Не выбраны <span class="sum" id="hRest"></span></h2>
+  <div class="grid" id="gRest"></div>
+</section>
+<div class="zoom" id="zoom"><canvas id="zcv"></canvas></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const DATA = /*DATA*/[];
+const ALPHA = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_";
+const AI = {}; [...ALPHA].forEach((c, i) => AI[c] = i);
+
+// Как цвет выглядит на диодах после гамма-коррекции WLED.
+const GV = new Uint8Array(256);
+for (let v = 0; v < 256; v++) {
+  const pwm = Math.round(255 * Math.pow(v / 255, 2.8));
+  GV[v] = Math.round(255 * Math.pow(pwm / 255, 1 / 2.8));
+}
+
+for (const a of DATA) {
+  a.pal = a.p.map(h => {
+    const r = GV[parseInt(h.slice(0, 2), 16)], g = GV[parseInt(h.slice(2, 4), 16)], b = GV[parseInt(h.slice(4, 6), 16)];
+    return Math.max(r, g, b) < 10 ? "#1d1d22" : `rgb(${r},${g},${b})`;
+  });
+  a.fi = a.f.map(s => {
+    const out = new Uint16Array(a.w * a.h);
+    for (let i = 0; i < out.length; i++) {
+      out[i] = a.k === 1 ? AI[s[i]] : AI[s[2 * i]] * 64 + AI[s[2 * i + 1]];
+    }
+    return out;
+  });
+  a.total = a.d.reduce((x, y) => x + y, 0);
+}
+
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+function draw(ctx, a, fi, P) {
+  ctx.fillStyle = "#050507";
+  ctx.fillRect(0, 0, a.w * P, a.h * P);
+  const f = a.fi[fi], r = P * 0.36;
+  for (let y = 0; y < a.h; y++) for (let x = 0; x < a.w; x++) {
+    ctx.fillStyle = a.pal[f[y * a.w + x]];
+    ctx.beginPath();
+    ctx.arc(x * P + P / 2, y * P + P / 2, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+function frameAt(a, t) {
+  let m = t % a.total;
+  for (let i = 0; i < a.d.length; i++) { if (m < a.d[i]) return i; m -= a.d[i]; }
+  return 0;
+}
+
+// ---------- плейлист для контроллера ----------
+// often — играют N раз подряд и сменяются; long — спокойные, крутятся заданное число секунд.
+// Анимация может быть только в одной группе. Порядок внутри группы — как в галерее.
+const PLAYLIST = /*PLAYLIST*/null;
+const DEF = { often: 2, long: 120 };
+const LIM = { often: [1, 99], long: [5, 36000] };
+const views = [];
+const $ = id => document.getElementById(id);
+const CHECK = '<span class="chk"><svg viewBox="0 0 16 16"><path d="M3 8.5l3.2 3L13 4.5" fill="none" stroke="#06210f" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>';
+
+function fmtTime(sec) {
+  sec = Math.round(sec);
+  if (sec < 60) return `${sec} с`;
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  if (h) return `${h} ч ${m} мин`;
+  return s ? `${m} мин ${s} с` : `${m} мин`;
+}
+
+for (const a of DATA) {
+  const card = document.createElement("div"); card.className = "card";
+  const cv = document.createElement("canvas");
+  const P = 14 * DPR;
+  cv.width = a.w * P; cv.height = a.h * P;
+  const cap = document.createElement("div"); cap.className = "cap";
+  const t = document.createElement("b"); t.textContent = a.title;
+  const m = document.createElement("span"); m.className = "muted";
+  m.textContent = `${(a.total / 1000).toFixed(1)} с · ${a.kb} КБ`;
+  cap.append(t, m);
+
+  const picks = document.createElement("div"); picks.className = "picks";
+  a.btn = {}; a.inp = {}; a.calc = {};
+  for (const [g, label] of [["often", "Часто"], ["long", "Долго"]]) {
+    const b = document.createElement("button"); b.type = "button"; b.className = `pick ${g}`;
+    b.innerHTML = CHECK + `<span>${label}</span>`;
+    b.addEventListener("click", () => toggle(g, a));
+    picks.appendChild(b);
+    a.btn[g] = b;
+  }
+
+  // параметр: «Раз подряд» для частых, «Секунд» для долгих
+  const params = [];
+  for (const g of ["often", "long"]) {
+    const row = document.createElement("div"); row.className = `param ${g}`;
+    const inp = document.createElement("input");
+    inp.type = "number"; inp.min = LIM[g][0]; inp.max = LIM[g][1]; inp.step = g === "often" ? 1 : 10;
+    inp.addEventListener("input", () => setVal(g, a, inp.value, false));
+    inp.addEventListener("change", () => setVal(g, a, inp.value, true));
+    const lbl = document.createElement("span"); lbl.textContent = g === "often" ? "Раз подряд" : "Секунд";
+    const calc = document.createElement("span"); calc.className = "calc";
+    if (g === "often") {
+      const minus = document.createElement("button"); minus.type = "button"; minus.textContent = "−";
+      const plus = document.createElement("button"); plus.type = "button"; plus.textContent = "+";
+      minus.addEventListener("click", () => setVal(g, a, (+inp.value || 1) - 1, true));
+      plus.addEventListener("click", () => setVal(g, a, (+inp.value || 1) + 1, true));
+      row.append(lbl, minus, inp, plus, calc);
+    } else {
+      row.append(lbl, inp, calc);
+    }
+    a.inp[g] = inp; a.calc[g] = calc;
+    params.push(row);
+  }
+
+  card.append(cv, cap, picks, ...params);
+  const v = { a, ctx: cv.getContext("2d"), P, fi: -1, start: performance.now() };
+  views.push(v);
+  a.card = card;
+  cv.addEventListener("click", () => openZoom(a));
+}
+
+// Раздел под файлы (LittleFS) — 960 КБ. Файл занимает целые блоки по 4 КБ;
+// ~60 КБ оставляем под настройки WLED (cfg.json, presets.json) и служебные блоки.
+const BLOCK = 4096, BUDGET = 900 * 1024;
+const KEY = "garland-playlist";
+const byName = new Map(DATA.map(a => [a.name, a]));
+const sel = { often: new Map(), long: new Map() };   // имя → раз / секунд
+
+function load(src) {
+  for (const g of ["often", "long"]) for (const [n, val] of Object.entries(src[g] || {})) {
+    if (byName.has(n) && !sel.often.has(n) && !sel.long.has(n)) sel[g].set(n, val);
+  }
+}
+try {
+  const s = JSON.parse(localStorage.getItem(KEY) || "null");
+  if (s) load(s);
+  else if (PLAYLIST) load(PLAYLIST);
+  else {   // выбор из прошлой версии страницы (только галочки)
+    const old = JSON.parse(localStorage.getItem("garland-groups") || "null");
+    if (old) load({
+      often: Object.fromEntries((old.often || []).map(n => [n, DEF.often])),
+      long: Object.fromEntries((old.long || []).map(n => [n, DEF.long])),
+    });
+  }
+} catch (e) { if (PLAYLIST) load(PLAYLIST); }
+try {   // старый дефолт «Долго» был 600 с — один раз переводим сохранённый выбор на новый
+  if (!localStorage.getItem("garland-long-def-120")) {
+    for (const [n, v] of sel.long) if (v === 600) sel.long.set(n, DEF.long);
+    save();
+    localStorage.setItem("garland-long-def-120", "1");
+  }
+} catch (e) {}
+
+function save() {
+  try {
+    localStorage.setItem(KEY, JSON.stringify({ often: Object.fromEntries(sel.often), long: Object.fromEntries(sel.long) }));
+  } catch (e) {}
+}
+function toggle(g, a) {
+  const other = g === "often" ? "long" : "often";
+  if (sel[g].has(a.name)) sel[g].delete(a.name);
+  else { sel[other].delete(a.name); sel[g].set(a.name, DEF[g]); }
+  save(); refresh(true);
+}
+function setVal(g, a, raw, commit) {
+  let n = Math.round(+raw);
+  if (!Number.isFinite(n) || raw === "") { if (!commit) return; n = DEF[g]; }
+  n = Math.max(LIM[g][0], Math.min(LIM[g][1], n));
+  sel[g].set(a.name, n);
+  save(); refresh(false, commit ? null : a.inp[g]);
+}
+
+function refresh(relayout, editing) {
+  let bytes = 0, disk = 0, files = 0, oftenMs = 0, longS = 0;
+  const lists = { often: [], long: [], rest: [] };
+  for (const a of DATA) {
+    const O = sel.often.has(a.name), L = sel.long.has(a.name);
+    a.card.classList.toggle("in-often", O);
+    a.card.classList.toggle("in-long", L);
+    a.btn.often.classList.toggle("on", O);
+    a.btn.long.classList.toggle("on", L);
+    if (O) {
+      const n = sel.often.get(a.name);
+      if (a.inp.often !== editing) a.inp.often.value = n;
+      a.calc.often.textContent = `≈ ${fmtTime(n * a.total / 1000)}`;
+      oftenMs += n * a.total;
+    }
+    if (L) {
+      const s = sel.long.get(a.name);
+      if (a.inp.long !== editing) a.inp.long.value = s;
+      a.calc.long.textContent = `≈ ${fmtTime(s)} · ${Math.max(1, Math.round(s * 1000 / a.total))} кругов`;
+      longS += s;
+    }
+    if (O || L) { files++; bytes += a.bytes; disk += Math.ceil(a.bytes / BLOCK) * BLOCK; }
+    lists[O ? "often" : L ? "long" : "rest"].push(a.card);
+  }
+  if (relayout) {
+    for (const [g, id] of [["often", "gOften"], ["long", "gLong"], ["rest", "gRest"]]) {
+      const box = $(id);
+      for (const c of lists[g]) box.appendChild(c);   // порядок — как в галерее
+    }
+  }
+  $("secOften").classList.toggle("is-empty", !sel.often.size);
+  $("secLong").classList.toggle("is-empty", !sel.long.size);
+  $("sOften").textContent = sel.often.size;
+  $("sLong").textContent = sel.long.size;
+  $("sOftenT").textContent = sel.often.size ? `· ${fmtTime(oftenMs / 1000)}` : "";
+  $("sLongT").textContent = sel.long.size ? `· ${fmtTime(longS)}` : "";
+  $("hOften").textContent = sel.often.size ? `${sel.often.size} шт. · все подряд ≈ ${fmtTime(oftenMs / 1000)}` : "";
+  $("hLong").textContent = sel.long.size ? `${sel.long.size} шт. · все подряд ≈ ${fmtTime(longS)}` : "";
+  $("hRest").textContent = `${lists.rest.length} шт.`;
+  $("sCount").textContent = files;
+  $("sTotal").textContent = DATA.length;
+  $("sKb").textContent = Math.round(bytes / 1024);
+  $("mFill").style.width = Math.min(100, disk / BUDGET * 100) + "%";
+  $("meter").classList.toggle("over", disk > BUDGET);
+  $("mLbl").textContent = disk > BUDGET
+    ? `На флешке ${Math.round(disk / 1024)} КБ из ${BUDGET / 1024} — не влезет, лишние ${Math.round((disk - BUDGET) / 1024)} КБ`
+    : `На флешке ${Math.round(disk / 1024)} КБ из ${BUDGET / 1024} · свободно ${Math.round((BUDGET - disk) / 1024)} КБ`;
+  $("bCopy").disabled = $("bClear").disabled = files === 0;
+}
+
+function listText() {
+  const often = DATA.filter(a => sel.often.has(a.name)).map(a => `${a.name}.gif ×${sel.often.get(a.name)} — ${a.title}`);
+  const long = DATA.filter(a => sel.long.has(a.name)).map(a => `${a.name}.gif ${sel.long.get(a.name)} с — ${a.title}`);
+  const out = [];
+  if (often.length) out.push(`Часто — раз подряд (${often.length}):\n${often.join("\n")}`);
+  if (long.length) out.push(`Долго — секунд (${long.length}):\n${long.join("\n")}`);
+  return out.join("\n\n");
+}
+function toast(msg) {
+  const el = $("toast"); el.textContent = msg; el.classList.add("on");
+  clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove("on"), 1600);
+}
+$("bCopy").addEventListener("click", async () => {
+  const text = listText();
+  try { await navigator.clipboard.writeText(text); }
+  catch (e) {
+    const ta = document.createElement("textarea"); ta.value = text;
+    document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove();
+  }
+  toast(`Скопировано: часто ${sel.often.size}, долго ${sel.long.size}`);
+});
+$("bRest").addEventListener("click", () => {
+  const on = document.body.classList.toggle("hide-rest");
+  $("bRest").classList.toggle("on", on);
+  $("bRest").textContent = on ? "Показать невыбранные" : "Скрыть невыбранные";
+});
+$("bClear").addEventListener("click", () => {
+  if (!confirm("Снять все галочки — и «Часто», и «Долго»?")) return;
+  sel.often.clear(); sel.long.clear(); save(); refresh(true);
+});
+refresh(true);
+
+const zoom = document.getElementById("zoom"), zcv = document.getElementById("zcv");
+let zv = null;
+function openZoom(a) {
+  const P = 40 * DPR;
+  zcv.width = a.w * P; zcv.height = a.h * P;
+  zv = { a, ctx: zcv.getContext("2d"), P, fi: -1, start: performance.now() };
+  zoom.classList.add("on");
+}
+zoom.addEventListener("click", () => { zoom.classList.remove("on"); zv = null; });
+
+function tick(now) {
+  for (const v of zv ? [zv] : views) {
+    const fi = frameAt(v.a, now - v.start);
+    if (fi !== v.fi) { draw(v.ctx, v.a, fi, v.P); v.fi = fi; }
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+.DS_Store
+__pycache__/
+
+# Чужое: APK и анимации из приложения Surplife, иконки LaMetric — не публикуем
+*.apk
+surplife/
+animations/surplife/
+animations/gallery_surplife.html
+animations/lametric/
+
+# Генерируется скриптами (gen.py, sheet.py, gallery.py)
+animations/preview/
+animations/tools/sheets/
+animations/gallery.html
+
+# Прошивка: исходники WLED — отдельный репозиторий (github.com/wled/WLED, тег v16.0.1),
+# наш модуль и конфиг сборки лежат в firmware/ и подключены туда ссылками
+firmware/WLED/
+firmware/.pio-venv/
+firmware/build.log
+firmware/sim/sim
+firmware/sim/err.txt
+firmware/sim/*.raw
+
+# Сайт
+web/node_modules/
+web/server/node_modules/
+web/dist/
+web/server/dist/
+web/.deploy/
+web/ssl/
+web/**/save.json
+web/**/palette.json
+.env
+
+# Локальные настройки Claude Code
+.claude/settings.local.json
